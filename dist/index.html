@@ -216,4 +216,329 @@ function cal(target){let el=document.getElementById(target);let names=['Пн','�
   migrateTaskMembers();populateMemberSelect();setFormType();render();
 })();
 </script>
+<script>
+(() => {
+  if (localStorage.getItem('our-home-firebase-v1')) return;
+  const CONFIG_KEY = 'our-home-sync-v1';
+  const DATA_KEYS = ['our-home-members-v1', 'our-home-recurring-v2', 'our-home-tasks', 'our-home-period-completions'];
+  const nativeSetItem = Storage.prototype.setItem;
+  let config = readConfig();
+  let revision = Number.isInteger(config.revision) ? config.revision : 0;
+  let ready = false;
+  let isApplying = false;
+  let pushTimer;
+  let pollTimer;
+
+  function readConfig() {
+    try { return JSON.parse(localStorage.getItem(CONFIG_KEY) || 'null') || {}; } catch { return {}; }
+  }
+  function saveConfig() { nativeSetItem.call(localStorage, CONFIG_KEY, JSON.stringify(config)); }
+  function endpoint() { return String(config.endpoint || '').replace(/\/+$/, ''); }
+  function hasConnection() { return Boolean(endpoint() && config.accessKey); }
+  function snapshot() {
+    const read = (key, fallback) => {
+      try { return JSON.parse(localStorage.getItem(key) || 'null') ?? fallback; } catch { return fallback; }
+    };
+    return { members: read(DATA_KEYS[0], []), templates: read(DATA_KEYS[1], []), sharedTasks: read(DATA_KEYS[2], []), completions: read(DATA_KEYS[3], {}) };
+  }
+  function validState(state) {
+    if (!state || typeof state !== 'object') return false;
+    const values = [state.members, state.templates, state.sharedTasks, state.completions];
+    if (!Array.isArray(values[0]) || !Array.isArray(values[1]) || !Array.isArray(values[2]) || !values[3] || typeof values[3] !== 'object' || Array.isArray(values[3])) return false;
+    return true;
+  }
+  function applyState(state) {
+    if (!validState(state)) return false;
+    const values = [state.members, state.templates, state.sharedTasks, state.completions];
+    isApplying = true;
+    try { values.forEach((value, index) => nativeSetItem.call(localStorage, DATA_KEYS[index], JSON.stringify(value))); }
+    finally { isApplying = false; }
+    return true;
+  }
+  async function request(method, path, body) {
+    const response = await fetch(`${endpoint()}${path}`, {
+      method,
+      headers: { 'Content-Type': 'application/json', 'X-Our-Home-Key': config.accessKey },
+      body: body === undefined ? undefined : JSON.stringify(body),
+      cache: 'no-store'
+    });
+    let payload = null;
+    try { payload = await response.json(); } catch {}
+    if (!response.ok) {
+      const error = new Error(payload?.error || `Ошибка сервера (${response.status})`);
+      error.status = response.status;
+      error.payload = payload;
+      throw error;
+    }
+    return payload;
+  }
+  function setStatus(text, type = '') {
+    const status = document.getElementById('syncStatus');
+    if (!status) return;
+    status.textContent = text;
+    status.className = `sync-status ${type}`;
+  }
+  function displayAddress(info) {
+    const address = info.addresses?.[0];
+    return address ? `http://${address}:${info.port}` : `http://<IP-адрес этого ПК>:${info.port}`;
+  }
+  function renderSettings() {
+    const card = document.getElementById('syncSettings');
+    if (!card) return;
+    const connected = hasConnection();
+    card.innerHTML = `<div class="sync-title"><div><b>Синхронизация между устройствами</b><small>Общие дела, расписание и отметки хранятся на одном ПК в вашей домашней сети.</small></div><span id="syncStatus" class="sync-status">${connected ? 'Подключение…' : 'Не настроено'}</span></div><div class="sync-actions"><button class="add" id="syncHost">Этот ПК — сервер</button><button class="cancel" id="syncClient">Подключить к серверу</button></div><div id="syncHostDetails" class="sync-details" hidden></div><form id="syncClientForm" class="sync-form" hidden><label>Адрес сервера<input id="syncEndpoint" type="url" placeholder="http://192.168.1.25:32145" required></label><label>Код подключения<input id="syncKey" type="password" autocomplete="off" required></label><div class="actions"><button type="button" class="cancel" id="syncCancel">Отмена</button><button class="save">Подключить</button></div></form><p class="sync-note">Оба компьютера должны быть в одной сети Wi‑Fi или LAN. Компьютер-сервер должен быть включён, пока нужна синхронизация.</p>`;
+    document.getElementById('syncHost').onclick = becomeHost;
+    document.getElementById('syncClient').onclick = () => document.getElementById('syncClientForm').hidden = false;
+    document.getElementById('syncCancel').onclick = () => document.getElementById('syncClientForm').hidden = true;
+    document.getElementById('syncClientForm').onsubmit = connectClient;
+  }
+  async function becomeHost() {
+    if (!window.homeSync) { setStatus('Запустите приложение для Windows', 'error'); return; }
+    try {
+      const info = await window.homeSync.serverInfo();
+      config = { endpoint: `http://127.0.0.1:${info.port}`, accessKey: info.accessKey, revision: 0, mode: 'host' };
+      saveConfig();
+      const details = document.getElementById('syncHostDetails');
+      details.hidden = false;
+      details.innerHTML = `<b>Данные для второго компьютера</b><span>Адрес: <code>${displayAddress(info)}</code></span><span>Код: <code>${info.accessKey}</code></span><small>Передайте эти два значения второму пользователю. Код даёт доступ к семейному списку, не публикуйте его.</small>`;
+      await initialize(true);
+    } catch (error) { setStatus(error.message, 'error'); }
+  }
+  async function connectClient(event) {
+    event.preventDefault();
+    config = { endpoint: document.getElementById('syncEndpoint').value.trim(), accessKey: document.getElementById('syncKey').value.trim(), revision: 0, mode: 'client' };
+    saveConfig();
+    try { await initialize(false); }
+    catch (error) { setStatus(error.message, 'error'); }
+  }
+  async function initialize(seedIfEmpty) {
+    if (!hasConnection()) return;
+    setStatus('Подключение…');
+    const knownRevision = revision;
+    const localState = snapshot();
+    const remote = await request('GET', '/api/state');
+    revision = Number.isInteger(remote.revision) ? remote.revision : 0;
+    config.revision = revision;
+    saveConfig();
+    if (remote.state) {
+      if (!validState(remote.state)) throw new Error('Сервер вернул данные неверного формата.');
+      if (remote.revision !== knownRevision) { applyState(remote.state); location.reload(); }
+      else if (JSON.stringify(remote.state) !== JSON.stringify(localState)) {
+        ready = true;
+        await pushNow();
+      } else { ready = true; setStatus('Синхронизировано', 'ok'); }
+      return;
+    }
+    if (!seedIfEmpty) throw new Error('На сервере пока нет данных. Сначала настройте на основном компьютере «Этот ПК — сервер».');
+    ready = true;
+    await pushNow();
+  }
+  function schedulePush() {
+    if (!ready || !hasConnection() || isApplying) return;
+    setStatus('Сохранение…');
+    clearTimeout(pushTimer);
+    pushTimer = setTimeout(pushNow, 450);
+  }
+  async function pushNow() {
+    if (!hasConnection()) return;
+    try {
+      const saved = await request('PUT', '/api/state', { revision, state: snapshot() });
+      revision = saved.revision;
+      config.revision = revision;
+      saveConfig();
+      ready = true;
+      setStatus('Синхронизировано', 'ok');
+    } catch (error) {
+      if (error.status === 409 && error.payload) {
+        revision = error.payload.revision;
+        config.revision = revision;
+        saveConfig();
+        try {
+          const saved = await request('PUT', '/api/state', { revision, state: snapshot() });
+          revision = saved.revision;
+          config.revision = revision;
+          saveConfig();
+          ready = true;
+          setStatus('Синхронизировано', 'ok');
+          return;
+        } catch (retryError) { error = retryError; }
+      }
+      setStatus(`Нет связи: ${error.message}`, 'error');
+    }
+  }
+  async function checkRemote() {
+    if (!ready || !hasConnection()) return;
+    try {
+      const remote = await request('GET', '/api/state');
+      if (Number.isInteger(remote.revision) && remote.revision > revision && applyState(remote.state)) location.reload();
+    } catch (error) { setStatus(`Нет связи: ${error.message}`, 'error'); }
+  }
+  Storage.prototype.setItem = function(key, value) {
+    nativeSetItem.call(this, key, value);
+    if (this === localStorage && DATA_KEYS.includes(key)) schedulePush();
+  };
+  const originalMemberCard = document.getElementById('membersSettings');
+  if (originalMemberCard) {
+    const syncCard = document.createElement('div');
+    syncCard.id = 'syncSettings';
+    syncCard.className = 'card set sync-card';
+    originalMemberCard.after(syncCard);
+  }
+  document.head.insertAdjacentHTML('beforeend', '<style>.sync-card{display:grid;gap:14px}.sync-title{display:flex;gap:12px;justify-content:space-between;align-items:flex-start}.sync-title small{max-width:600px}.sync-status{font-size:12px;font-weight:800;white-space:nowrap;color:#718076;background:#edf0ea;border-radius:99px;padding:5px 8px}.sync-status.ok{color:#3e684a;background:#dce9dc}.sync-status.error{color:#a34f3c;background:#f7e1db}.sync-actions{display:flex;gap:9px;flex-wrap:wrap}.sync-details{display:grid;gap:7px;background:#f4f7f1;border-radius:14px;padding:13px}.sync-details span{font-size:14px}.sync-details code{user-select:all;overflow-wrap:anywhere}.sync-details small{font-size:12px}.sync-form{display:grid;gap:4px;background:#f8f7f2;border-radius:14px;padding:13px}.sync-form label{display:grid;gap:4px}.sync-form input{width:100%;border:1px solid var(--line);background:white;border-radius:10px;padding:10px;color:var(--ink)}.sync-note{font-size:12px;color:var(--muted);margin:0}@media(max-width:520px){.sync-title{display:grid}.sync-status{width:max-content}}</style>');
+  renderSettings();
+  if (hasConnection()) {
+    const startup = config.mode === 'host' && window.homeSync
+      ? window.homeSync.serverInfo().then(() => initialize(true))
+      : initialize(false);
+    startup.catch((error) => setStatus(`Нет связи: ${error.message}`, 'error'));
+    pollTimer = setInterval(checkRemote, 4000);
+  }
+})();
+</script>
+<script>
+(() => {
+  const CONFIG_KEY = 'our-home-firebase-v1';
+  const LEGACY_SYNC_KEY = 'our-home-sync-v1';
+  const DATA_KEYS = ['our-home-members-v1', 'our-home-recurring-v2', 'our-home-tasks', 'our-home-period-completions'];
+  const nativeSetItem = Storage.prototype.setItem;
+  let config = readConfig();
+  let ready = false;
+  let applying = false;
+  let pushTimer;
+  let pollTimer;
+
+  function readConfig() { try { return JSON.parse(localStorage.getItem(CONFIG_KEY) || 'null') || {}; } catch { return {}; } }
+  function saveConfig() { nativeSetItem.call(localStorage, CONFIG_KEY, JSON.stringify(config)); }
+  function snapshot() {
+    const read = (key, fallback) => { try { return JSON.parse(localStorage.getItem(key) || 'null') ?? fallback; } catch { return fallback; } };
+    return { members: read(DATA_KEYS[0], []), templates: read(DATA_KEYS[1], []), sharedTasks: read(DATA_KEYS[2], []), completions: read(DATA_KEYS[3], {}) };
+  }
+  function validState(state) { return Boolean(state && Array.isArray(state.members) && Array.isArray(state.templates) && Array.isArray(state.sharedTasks) && state.completions && typeof state.completions === 'object' && !Array.isArray(state.completions)); }
+  function applyState(state) {
+    if (!validState(state)) return false;
+    applying = true;
+    try { [state.members, state.templates, state.sharedTasks, state.completions].forEach((value, index) => nativeSetItem.call(localStorage, DATA_KEYS[index], JSON.stringify(value))); }
+    finally { applying = false; }
+    return true;
+  }
+  function authHeaders() { return { 'Content-Type': 'application/json', Authorization: `Bearer ${config.session?.idToken || ''}` }; }
+  function apiError(payload, fallback) { const error = new Error(payload?.error?.message || payload?.error?.message || fallback); error.status = payload?.status; return error; }
+  function displayError(error) {
+    const text = String(error?.message || 'Неизвестная ошибка');
+    if (/INVALID_LOGIN_CREDENTIALS|EMAIL_NOT_FOUND|INVALID_PASSWORD/i.test(text)) return 'Неверный e-mail или пароль.';
+    if (/API_KEY_INVALID/i.test(text)) return 'Не удалось проверить Web API key.';
+    if (/PERMISSION_DENIED/i.test(text)) return 'Firestore не разрешил доступ. Проверьте правила безопасности.';
+    return text.replace(/_/g, ' ');
+  }
+  async function signIn(email, password) {
+    const response = await fetch(`https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key=${encodeURIComponent(config.apiKey)}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email, password, returnSecureToken: true }) });
+    const payload = await response.json();
+    if (!response.ok) throw apiError(payload, 'Не удалось войти.');
+    config.session = { idToken: payload.idToken, refreshToken: payload.refreshToken, email: payload.email, userId: payload.localId, expiresAt: Date.now() + (Number(payload.expiresIn || 3600) - 120) * 1000 };
+    saveConfig();
+  }
+  async function refreshToken() {
+    if (!config.session?.refreshToken) throw new Error('Войдите в приложение.');
+    if (config.session.expiresAt > Date.now()) return;
+    const response = await fetch(`https://securetoken.googleapis.com/v1/token?key=${encodeURIComponent(config.apiKey)}`, { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: `grant_type=refresh_token&refresh_token=${encodeURIComponent(config.session.refreshToken)}` });
+    const payload = await response.json();
+    if (!response.ok) throw apiError(payload, 'Не удалось обновить вход.');
+    config.session = { ...config.session, idToken: payload.id_token, refreshToken: payload.refresh_token, expiresAt: Date.now() + (Number(payload.expires_in || 3600) - 120) * 1000 };
+    saveConfig();
+  }
+  function documentUrl() { return `https://firestore.googleapis.com/v1/projects/${encodeURIComponent(config.projectId)}/databases/(default)/documents/our-home/shared`; }
+  async function readRemote() {
+    await refreshToken();
+    const response = await fetch(documentUrl(), { headers: authHeaders(), cache: 'no-store' });
+    if (response.status === 404) return null;
+    const payload = await response.json();
+    if (!response.ok) throw apiError(payload, 'Не удалось получить общие данные.');
+    const payloadText = payload.fields?.payload?.stringValue;
+    let state;
+    try { state = JSON.parse(payloadText); } catch { throw new Error('Облачные данные имеют неверный формат.'); }
+    if (!validState(state)) throw new Error('Облачные данные имеют неверный формат.');
+    return { state, revision: Number(payload.fields?.revision?.integerValue || 0), updateTime: payload.updateTime };
+  }
+  async function writeRemote(state) {
+    await refreshToken();
+    const revision = Number(config.revision || 0) + 1;
+    const condition = config.updateTime ? `currentDocument.updateTime=${encodeURIComponent(config.updateTime)}` : 'currentDocument.exists=false';
+    const response = await fetch(`${documentUrl()}?${condition}`, { method: 'PATCH', headers: authHeaders(), body: JSON.stringify({ fields: { payload: { stringValue: JSON.stringify(state) }, revision: { integerValue: String(revision) } } }) });
+    const payload = await response.json();
+    if (!response.ok) {
+      const error = apiError(payload, 'Не удалось сохранить общие данные.');
+      error.httpStatus = response.status;
+      throw error;
+    }
+    config.revision = revision;
+    config.updateTime = payload.updateTime;
+    saveConfig();
+  }
+  function setStatus(text, kind = '') { const status = document.getElementById('firebaseStatus'); if (status) { status.textContent = text; status.className = `sync-status ${kind}`; } }
+  function renderSettings() {
+    const card = document.getElementById('firebaseSettings');
+    if (!card) return;
+    const signedIn = Boolean(config.session?.email);
+    card.innerHTML = signedIn
+      ? `<div class="sync-title"><div><b>Облачная синхронизация</b><small>Общие данные хранятся в Firebase и доступны с любого подключённого компьютера.</small></div><span id="firebaseStatus" class="sync-status">Подключение…</span></div><div class="firebase-user"><span class="person">☁</span><span>${escapeHtml(config.session.email)}</span><button class="cancel" id="firebaseSignOut">Выйти</button></div><p class="sync-note">Изменения сохраняются автоматически. Интернет нужен только для обмена между устройствами.</p>`
+      : `<div class="sync-title"><div><b>Облачная синхронизация Firebase</b><small>Один раз укажите проект Firebase и войдите под одной из двух созданных учётных записей.</small></div><span id="firebaseStatus" class="sync-status">Не подключено</span></div><form id="firebaseForm" class="sync-form"><label>Project ID<input id="firebaseProjectId" value="${escapeHtml(config.projectId || '')}" placeholder="our-home-12345" required></label><label>Web API key<input id="firebaseApiKey" value="${escapeHtml(config.apiKey || '')}" placeholder="AIza…" required></label><label>E-mail<input id="firebaseEmail" type="email" autocomplete="username" value="${escapeHtml(config.email || '')}" required></label><label>Пароль<input id="firebasePassword" type="password" autocomplete="current-password" required></label><div class="actions"><button class="save">Войти и синхронизировать</button></div></form><details class="firebase-help"><summary>Как подготовить Firebase</summary><ol><li>Создайте проект Firebase и Cloud Firestore в production mode.</li><li>В Authentication включите «Email/Password» и создайте две учётные записи.</li><li>В Firestore Rules вставьте правило из инструкции к сборке приложения.</li><li>Скопируйте Project ID и Web API key из настроек веб-приложения Firebase.</li></ol></details>`;
+    document.getElementById('firebaseForm')?.addEventListener('submit', signInFromForm);
+    document.getElementById('firebaseSignOut')?.addEventListener('click', () => { config.session = null; config.revision = 0; config.updateTime = null; saveConfig(); clearInterval(pollTimer); ready = false; renderSettings(); });
+  }
+  function escapeHtml(value) { return String(value).replace(/[&<>"']/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[char])); }
+  async function signInFromForm(event) {
+    event.preventDefault();
+    config = { projectId: document.getElementById('firebaseProjectId').value.trim(), apiKey: document.getElementById('firebaseApiKey').value.trim(), email: document.getElementById('firebaseEmail').value.trim(), revision: 0, updateTime: null, session: null };
+    saveConfig();
+    setStatus('Вход…');
+    try {
+      await signIn(config.email, document.getElementById('firebasePassword').value);
+      localStorage.removeItem(LEGACY_SYNC_KEY);
+      renderSettings();
+      await initialize();
+      if (!pollTimer) pollTimer = setInterval(checkRemote, 15000);
+    } catch (error) { config.session = null; saveConfig(); setStatus(displayError(error), 'error'); }
+  }
+  async function initialize() {
+    const knownRevision = Number(config.revision || 0);
+    const localState = snapshot();
+    setStatus('Подключение…');
+    const remote = await readRemote();
+    if (!remote) { ready = true; await pushNow(); return; }
+    config.revision = remote.revision;
+    config.updateTime = remote.updateTime;
+    saveConfig();
+    if (remote.revision !== knownRevision) { applyState(remote.state); location.reload(); return; }
+    ready = true;
+    if (JSON.stringify(remote.state) !== JSON.stringify(localState)) await pushNow();
+    else setStatus('Синхронизировано', 'ok');
+  }
+  function schedulePush() { if (!ready || applying || !config.session) return; setStatus('Сохранение…'); clearTimeout(pushTimer); pushTimer = setTimeout(pushNow, 500); }
+  async function pushNow() {
+    if (!config.session) return;
+    const localState = snapshot();
+    try { await writeRemote(localState); ready = true; setStatus('Синхронизировано', 'ok'); }
+    catch (error) {
+      if (error.httpStatus === 400 || error.httpStatus === 409) {
+        try { const remote = await readRemote(); if (remote) { config.revision = remote.revision; config.updateTime = remote.updateTime; saveConfig(); await writeRemote(localState); setStatus('Синхронизировано', 'ok'); return; } } catch (retryError) { error = retryError; }
+      }
+      setStatus(`Нет связи: ${displayError(error)}`, 'error');
+    }
+  }
+  async function checkRemote() {
+    if (!ready || !config.session) return;
+    try { const remote = await readRemote(); if (remote && remote.revision > Number(config.revision || 0)) { config.revision = remote.revision; config.updateTime = remote.updateTime; saveConfig(); applyState(remote.state); location.reload(); } }
+    catch (error) { setStatus(`Нет связи: ${displayError(error)}`, 'error'); }
+  }
+  Storage.prototype.setItem = function(key, value) { nativeSetItem.call(this, key, value); if (this === localStorage && DATA_KEYS.includes(key)) schedulePush(); };
+  document.getElementById('syncSettings')?.remove();
+  const membersCard = document.getElementById('membersSettings');
+  if (membersCard) { const card = document.createElement('div'); card.id = 'firebaseSettings'; card.className = 'card set sync-card'; membersCard.after(card); }
+  document.head.insertAdjacentHTML('beforeend', '<style>.firebase-user{display:flex;align-items:center;gap:9px}.firebase-user .cancel{margin-left:auto}.firebase-help{font-size:13px;color:var(--muted)}.firebase-help ol{margin:8px 0 0;padding-left:20px;display:grid;gap:4px}</style>');
+  renderSettings();
+  if (config.session) {
+    initialize().then(() => { if (!pollTimer) pollTimer = setInterval(checkRemote, 15000); }).catch((error) => { ready = false; setStatus(`Нет связи: ${displayError(error)}`, 'error'); });
+  }
+})();
+</script>
 </body></html>
