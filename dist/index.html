@@ -510,7 +510,14 @@ function cal(target){let el=document.getElementById(target);let names=['Пн','�
   let ready = false;
   let applying = false;
   let pushTimer;
+  let retryTimer;
+  let initializationTimer;
   let pollTimer;
+  let pendingChanges = false;
+  let changeVersion = 0;
+  let pushInFlight = false;
+  let retryDelay = 2000;
+  let initializationRetryDelay = 2000;
 
   function readConfig() { try { return JSON.parse(localStorage.getItem(CONFIG_KEY) || 'null') || {}; } catch { return {}; } }
   function saveConfig() { nativeSetItem.call(localStorage, CONFIG_KEY, JSON.stringify(config)); }
@@ -588,7 +595,7 @@ function cal(target){let el=document.getElementById(target);let names=['Пн','�
       ? `<div class="sync-title"><div><b>Облачная синхронизация</b><small>Общие данные хранятся в Firebase и доступны с любого подключённого компьютера.</small></div><span id="firebaseStatus" class="sync-status">Подключение…</span></div><div class="firebase-user"><span class="person">☁</span><span>${escapeHtml(config.session.email)}</span><button class="cancel" id="firebaseSignOut">Выйти</button></div><p class="sync-note">Изменения сохраняются автоматически. Интернет нужен только для обмена между устройствами.</p>`
       : `<div class="sync-title"><div><b>Облачная синхронизация Firebase</b><small>Один раз укажите проект Firebase и войдите под одной из двух созданных учётных записей.</small></div><span id="firebaseStatus" class="sync-status">Не подключено</span></div><form id="firebaseForm" class="sync-form"><label>Project ID<input id="firebaseProjectId" value="${escapeHtml(config.projectId || '')}" placeholder="our-home-12345" required></label><label>Web API key<input id="firebaseApiKey" value="${escapeHtml(config.apiKey || '')}" placeholder="AIza…" required></label><label>E-mail<input id="firebaseEmail" type="email" autocomplete="username" value="${escapeHtml(config.email || '')}" required></label><label>Пароль<input id="firebasePassword" type="password" autocomplete="current-password" required></label><div class="actions"><button class="save">Войти и синхронизировать</button></div></form><details class="firebase-help"><summary>Как подготовить Firebase</summary><ol><li>Создайте проект Firebase и Cloud Firestore в production mode.</li><li>В Authentication включите «Email/Password» и создайте две учётные записи.</li><li>В Firestore Rules вставьте правило из инструкции к сборке приложения.</li><li>Скопируйте Project ID и Web API key из настроек веб-приложения Firebase.</li></ol></details>`;
     document.getElementById('firebaseForm')?.addEventListener('submit', signInFromForm);
-    document.getElementById('firebaseSignOut')?.addEventListener('click', () => { config.session = null; config.revision = 0; config.updateTime = null; saveConfig(); clearInterval(pollTimer); ready = false; renderSettings(); });
+    document.getElementById('firebaseSignOut')?.addEventListener('click', () => { config.session = null; config.revision = 0; config.updateTime = null; saveConfig(); clearInterval(pollTimer); clearTimeout(initializationTimer); ready = false; renderSettings(); });
   }
   function escapeHtml(value) { return String(value).replace(/[&<>"']/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[char])); }
   async function signInFromForm(event) {
@@ -600,39 +607,126 @@ function cal(target){let el=document.getElementById(target);let names=['Пн','�
       await signIn(config.email, document.getElementById('firebasePassword').value);
       localStorage.removeItem(LEGACY_SYNC_KEY);
       renderSettings();
-      await initialize();
-      if (!pollTimer) pollTimer = setInterval(checkRemote, 15000);
+      await startSynchronization();
     } catch (error) { config.session = null; saveConfig(); setStatus(displayError(error), 'error'); }
+  }
+  function markPendingChanges() {
+    pendingChanges = true;
+    changeVersion += 1;
+  }
+  function queuePush(delay = 500) {
+    if (!pendingChanges || !ready || !config.session) return;
+    clearTimeout(pushTimer);
+    pushTimer = setTimeout(() => { pushNow(); }, delay);
+  }
+  function retryPendingChanges() {
+    if (!pendingChanges || !ready || !config.session) return;
+    clearTimeout(retryTimer);
+    const delay = retryDelay;
+    retryDelay = Math.min(retryDelay * 2, 30000);
+    retryTimer = setTimeout(() => { pushNow(); }, delay);
+  }
+  function scheduleInitializationRetry() {
+    if (!config.session) return;
+    clearTimeout(initializationTimer);
+    const delay = initializationRetryDelay;
+    initializationRetryDelay = Math.min(initializationRetryDelay * 2, 30000);
+    initializationTimer = setTimeout(() => { startSynchronization(); }, delay);
+  }
+  async function startSynchronization() {
+    if (!config.session) return;
+    clearTimeout(initializationTimer);
+    try {
+      await initialize();
+      initializationRetryDelay = 2000;
+      if (!pollTimer) pollTimer = setInterval(checkRemote, 15000);
+    } catch (error) {
+      ready = false;
+      setStatus(`Нет связи: ${displayError(error)}`, 'error');
+      scheduleInitializationRetry();
+    }
   }
   async function initialize() {
     const knownRevision = Number(config.revision || 0);
     const localState = snapshot();
     setStatus('Подключение…');
     const remote = await readRemote();
-    if (!remote) { ready = true; await pushNow(); return; }
+    if (!remote) {
+      ready = true;
+      markPendingChanges();
+      await pushNow();
+      return;
+    }
     config.revision = remote.revision;
     config.updateTime = remote.updateTime;
     saveConfig();
     if (remote.revision !== knownRevision) { applyState(remote.state); location.reload(); return; }
     ready = true;
-    if (JSON.stringify(remote.state) !== JSON.stringify(localState)) await pushNow();
-    else setStatus('Синхронизировано', 'ok');
+    if (JSON.stringify(remote.state) !== JSON.stringify(localState)) {
+      markPendingChanges();
+      await pushNow();
+    } else {
+      setStatus('Синхронизировано', 'ok');
+      queuePush(0);
+    }
   }
-  function schedulePush() { if (!ready || applying || !config.session) return; setStatus('Сохранение…'); clearTimeout(pushTimer); pushTimer = setTimeout(pushNow, 500); }
+  function schedulePush() {
+    if (applying) return;
+    markPendingChanges();
+    if (!ready || !config.session) return;
+    setStatus('Сохранение…');
+    queuePush();
+  }
   async function pushNow() {
-    if (!config.session) return;
+    if (!pendingChanges || !ready || !config.session || pushInFlight) return;
+    pushInFlight = true;
+    const pushedVersion = changeVersion;
+    let saved = false;
     const localState = snapshot();
-    try { await writeRemote(localState); ready = true; setStatus('Синхронизировано', 'ok'); }
+    try {
+      await writeRemote(localState);
+      ready = true;
+      retryDelay = 2000;
+      if (changeVersion === pushedVersion) pendingChanges = false;
+      saved = true;
+      setStatus('Синхронизировано', 'ok');
+    }
     catch (error) {
       if (error.httpStatus === 400 || error.httpStatus === 409) {
-        try { const remote = await readRemote(); if (remote) { config.revision = remote.revision; config.updateTime = remote.updateTime; saveConfig(); await writeRemote(localState); setStatus('Синхронизировано', 'ok'); return; } } catch (retryError) { error = retryError; }
+        try {
+          const remote = await readRemote();
+          if (remote) {
+            config.revision = remote.revision;
+            config.updateTime = remote.updateTime;
+            saveConfig();
+            await writeRemote(localState);
+            retryDelay = 2000;
+            if (changeVersion === pushedVersion) pendingChanges = false;
+            saved = true;
+            setStatus('Синхронизировано', 'ok');
+            return;
+          }
+        } catch (retryError) { error = retryError; }
       }
       setStatus(`Нет связи: ${displayError(error)}`, 'error');
+      retryPendingChanges();
+    } finally {
+      pushInFlight = false;
+      if (saved && pendingChanges && ready && config.session) queuePush(0);
     }
   }
   async function checkRemote() {
     if (!ready || !config.session) return;
-    try { const remote = await readRemote(); if (remote && remote.revision > Number(config.revision || 0)) { config.revision = remote.revision; config.updateTime = remote.updateTime; saveConfig(); applyState(remote.state); location.reload(); } }
+    try {
+      const remote = await readRemote();
+      if (remote && remote.revision > Number(config.revision || 0)) {
+        config.revision = remote.revision;
+        config.updateTime = remote.updateTime;
+        saveConfig();
+        applyState(remote.state);
+        location.reload();
+      } else queuePush(0);
+    }
     catch (error) { setStatus(`Нет связи: ${displayError(error)}`, 'error'); }
   }
   Storage.prototype.setItem = function(key, value) { nativeSetItem.call(this, key, value); if (this === localStorage && DATA_KEYS.includes(key)) schedulePush(); };
@@ -642,7 +736,7 @@ function cal(target){let el=document.getElementById(target);let names=['Пн','�
   document.head.insertAdjacentHTML('beforeend', '<style>.firebase-user{display:flex;align-items:center;gap:9px}.firebase-user .cancel{margin-left:auto}.firebase-help{font-size:13px;color:var(--muted)}.firebase-help ol{margin:8px 0 0;padding-left:20px;display:grid;gap:4px}</style>');
   renderSettings();
   if (config.session) {
-    initialize().then(() => { if (!pollTimer) pollTimer = setInterval(checkRemote, 15000); }).catch((error) => { ready = false; setStatus(`Нет связи: ${displayError(error)}`, 'error'); });
+    startSynchronization();
   }
 })();
 </script>
