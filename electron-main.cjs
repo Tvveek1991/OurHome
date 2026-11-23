@@ -1,4 +1,5 @@
 const { app, BrowserWindow, shell, ipcMain } = require('electron');
+const { autoUpdater } = require('electron-updater');
 const crypto = require('node:crypto');
 const fs = require('node:fs');
 const http = require('node:http');
@@ -10,6 +11,31 @@ const MAX_BODY_SIZE = 1024 * 1024;
 let syncServer;
 let syncInfo;
 let syncServerStarting;
+let updateState = { status: 'idle', currentVersion: app.getVersion() };
+
+function publishUpdateState(nextState) {
+  updateState = { ...updateState, ...nextState };
+  for (const window of BrowserWindow.getAllWindows()) {
+    window.webContents.send('updater:status', updateState);
+  }
+}
+
+function configureAutoUpdater() {
+  // Updates are only available from an installed, packaged application.
+  if (!app.isPackaged) return;
+
+  autoUpdater.autoDownload = false;
+  autoUpdater.autoInstallOnAppQuit = false;
+  autoUpdater.on('checking-for-update', () => publishUpdateState({ status: 'checking', message: 'Проверяем обновления…' }));
+  autoUpdater.on('update-available', (info) => publishUpdateState({ status: 'available', availableVersion: info.version, message: `Доступна версия ${info.version}.` }));
+  autoUpdater.on('update-not-available', () => publishUpdateState({ status: 'not-available', message: 'Установлена последняя версия.' }));
+  autoUpdater.on('download-progress', (progress) => publishUpdateState({ status: 'downloading', percent: Math.round(progress.percent), message: `Скачивание: ${Math.round(progress.percent)}%.` }));
+  autoUpdater.on('update-downloaded', (info) => publishUpdateState({ status: 'downloaded', availableVersion: info.version, percent: 100, message: `Версия ${info.version} готова к установке.` }));
+  autoUpdater.on('error', (error) => {
+    console.error(`Ошибка обновления: ${error.message}`);
+    publishUpdateState({ status: 'error', message: 'Не удалось проверить или скачать обновление. Повторите позже.' });
+  });
+}
 
 function readJson(file, fallback) {
   try {
@@ -137,7 +163,22 @@ function createWindow() {
 }
 
 app.whenReady().then(() => {
+  configureAutoUpdater();
   ipcMain.handle('sync:server-info', () => startSyncServer());
+  ipcMain.handle('updater:state', () => ({ ...updateState, supported: app.isPackaged }));
+  ipcMain.handle('updater:check', async () => {
+    if (!app.isPackaged) return { ...updateState, supported: false };
+    await autoUpdater.checkForUpdates();
+    return { ...updateState, supported: true };
+  });
+  ipcMain.handle('updater:download', async () => {
+    if (!app.isPackaged) return { ...updateState, supported: false };
+    await autoUpdater.downloadUpdate();
+    return { ...updateState, supported: true };
+  });
+  ipcMain.handle('updater:install', () => {
+    if (app.isPackaged && updateState.status === 'downloaded') autoUpdater.quitAndInstall();
+  });
   createWindow();
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();

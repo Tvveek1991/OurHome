@@ -1,13 +1,14 @@
 {
   "name": "our-home-organizer",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Уютный семейный органайзер для Windows",
   "author": "Наш дом",
   "main": "electron-main.cjs",
   "private": true,
   "scripts": {
     "desktop:dev": "electron .",
-    "desktop:build": "electron-builder --win nsis"
+    "desktop:build": "electron-builder --win nsis",
+    "desktop:publish": "electron-builder --win nsis --publish always"
   },
   "devDependencies": {
     "electron": "^37.2.6",
@@ -16,6 +17,7 @@
   "build": {
     "appId": "com.nashdom.organizer",
     "productName": "Наш дом",
+    "artifactName": "our-home-organizer-setup-${version}.${ext}",
     "directories": {
       "output": "../../outputs/our-home-windows"
     },
@@ -29,15 +31,28 @@
       "target": [
         {
           "target": "nsis",
-          "arch": ["x64"]
+          "arch": [
+            "x64"
+          ]
         }
       ]
     },
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "Tvveek1991",
+        "repo": "OurHome",
+        "releaseType": "release"
+      }
+    ],
     "nsis": {
       "oneClick": false,
       "allowToChangeInstallationDirectory": true,
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true
     }
+  },
+  "dependencies": {
+    "electron-updater": "6.8.11"
   }
 }

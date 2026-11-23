@@ -20,7 +20,7 @@
   <section id="today" class="view active"><div class="heading"><div><h1>Доброе утро, Анна</h1><p class="sub">Пятница, 21 ноября</p></div><div style="display:grid;gap:7px;justify-items:end"><span class="muted" id="todayCount"></span><button class="add" onclick="openModal('recurring')">＋ Дело</button></div></div><div class="layout"><div><div class="progress-card"><div class="row"><b>Сегодняшний ритм</b><b id="progressText">0 из 0</b></div><div class="bar"><i id="progress"></i></div></div><div class="section-label">Запланировано на сегодня</div><div id="todayList" class="task-list"></div></div><aside><div class="card cal"><div class="row"><b>Ноябрь 2026</b><span>📅</span></div><div class="month" id="miniCalendar"></div><div class="cal-note"><b>Маленький шаг — тоже забота</b><p class="muted">Не нужно успеть всё. Главное — делать дом уютнее вместе.</p></div></div></aside></div></section>
   <section id="shared" class="view"><div class="heading"><div><h1>Общие дела</h1><p class="sub">Важное, что ждёт своего момента</p></div><button class="add" onclick="openModal('shared')">＋ Добавить</button></div><div class="filter"><button class="on" data-filter="active">Активные</button><button data-filter="done">Выполненные</button><button data-filter="all">Все</button><button data-filter="archive">Архив</button></div><div id="sharedList" class="task-list" style="margin-top:18px"></div><div id="sharedCalendarSection" class="shared-calendar-section"><div class="section-label">Календарь общих дел</div><div id="sharedCalendar" class="card cal"></div><div id="sharedCalendarDateLabel" class="section-label"></div><div id="sharedCalendarTasks" class="task-list"></div></div></section>
   <section id="calendar" class="view"><div class="heading"><div><h1>Календарь</h1><p class="sub">План и история дома</p></div></div><div class="card cal"><div class="row"><button class="cancel">‹</button><h2>Ноябрь 2026</h2><button class="cancel">›</button></div><div class="month" id="bigCalendar"></div></div><div class="section-label">21 ноября</div><div id="calendarTasks" class="task-list"></div></section>
-  <section id="settings" class="view"><div class="heading"><div><h1>Настройки</h1><p class="sub">Ваш дом, ваши правила</p></div></div><div class="settings"><div class="card set"><div class="row"><div><b>Новый день — новый список</b><small>Невыполненные регулярные дела сохраняются в истории.</small></div><button class="toggle on" aria-label="Переключить"></button></div></div><div class="card set"><div class="row"><div><b>Выполненные общие дела</b><small>Оставлять видимыми, пока вы их не архивируете.</small></div><button class="toggle on" aria-label="Переключить"></button></div></div><div class="card set"><b>Участники дома</b><small>Анна · Максим · София</small></div><div class="card set"><b>Уведомления</b><small>Напоминания можно будет подключить в следующей версии.</small></div></div></section>
+  <section id="settings" class="view"><div class="heading"><div><h1>Настройки</h1><p class="sub">Ваш дом, ваши правила</p></div></div><div class="settings"><div class="card set"><div class="row"><div><b>Новый день — новый список</b><small>Невыполненные регулярные дела сохраняются в истории.</small></div><button class="toggle on" aria-label="Переключить"></button></div></div><div class="card set"><div class="row"><div><b>Выполненные общие дела</b><small>Оставлять видимыми, пока вы их не архивируете.</small></div><button class="toggle on" aria-label="Переключить"></button></div></div><div class="card set"><b>Участники дома</b><small>Анна · Максим · София</small></div><div id="updateSettings" class="card set update-card"></div><div class="card set"><b>Уведомления</b><small>Напоминания можно будет подключить в следующей версии.</small></div></div></section>
 </main>
 <nav class="bottom"><button class="nav on" data-view="today"><span class="ico">☀</span>Сегодня</button><button class="nav" data-view="shared"><span class="ico">☷</span>Общие</button><button class="nav" data-view="calendar"><span class="ico">▦</span>Календарь</button><button class="nav" data-view="settings"><span class="ico">⚙</span>Настройки</button></nav>
 <div class="modal" id="modal"><form class="sheet" id="taskForm"><h2 id="formTitle">Новое дело</h2><p class="muted" id="formDescription">Выберите, будет ли оно постоянным или повторяющимся.</p><div class="type-picker"><button type="button" data-task-type="shared">Общее</button><button type="button" data-task-type="recurring">По расписанию</button></div><label>Что нужно сделать?</label><input required id="newTitle" placeholder="Например, купить лампочку" maxlength="70" autofocus><div class="schedule-fields" id="scheduleFields"><label>Как часто?</label><select id="newFrequency"><option value="daily">Каждый день</option><option value="weekly">Каждую неделю</option><option value="biweekly">Каждые 2 недели</option><option value="monthly">Каждый месяц</option></select><label>День выполнения</label><select id="newDay"><option value="Пн">Понедельник</option><option value="Вт">Вторник</option><option value="Ср">Среда</option><option value="Чт">Четверг</option><option value="Пт" selected>Пятница</option><option value="Сб">Суббота</option><option value="Вс">Воскресенье</option><option value="1-е число">1-е число месяца</option></select><p class="hint">Повторяющееся дело будет показываться в разделе «Сегодня» в нужный день.</p></div><div id="calendarOption" class="calendar-option"><label class="checkbox-label"><input type="checkbox" id="addToCalendar"> Добавить в календарь</label><div id="calendarDateField" class="calendar-date-field" hidden><label for="newCalendarDate">Дата выполнения</label><input type="date" id="newCalendarDate"></div></div><label>Ответственный</label><select id="newPerson"><option value="👥">Для всех</option><option value="👩🏻">Анна</option><option value="👨🏻">Максим</option><option value="👧🏻">София</option></select><div class="actions"><button type="button" class="cancel" onclick="closeModal()">Отмена</button><button id="formSubmit" class="save">Добавить</button></div></form></div>
@@ -542,4 +542,55 @@ function cal(target){let el=document.getElementById(target);let names=['Пн','�
   }
 })();
 </script>
+<script>
+(() => {
+  const card = document.getElementById('updateSettings');
+  if (!card) return;
+
+  let state = { status: 'idle', version: '—', supported: false };
+  const escapeHtml = (value) => String(value || '').replace(/[&<>"']/g, (character) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[character]));
+  const labels = {
+    idle: 'Проверить обновления',
+    checking: 'Проверяем…',
+    available: 'Скачать обновление',
+    downloading: 'Скачивание…',
+    downloaded: 'Перезапустить и установить',
+    'not-available': 'Проверить ещё раз',
+    error: 'Повторить проверку'
+  };
+
+  function render() {
+    if (!state.supported) {
+      card.innerHTML = '<div><b>Обновление приложения</b><small>Проверка обновлений доступна в установленной версии для Windows.</small></div>';
+      return;
+    }
+    const busy = state.status === 'checking' || state.status === 'downloading';
+    const status = state.message || `Текущая версия: ${state.version || '—'}`;
+    const progress = state.status === 'downloading' ? `<div class="update-progress"><i style="width:${Math.min(100, Math.max(0, Number(state.percent) || 0))}%"></i></div>` : '';
+    card.innerHTML = `<div class="sync-title"><div><b>Обновление приложения</b><small>Текущая версия: ${escapeHtml(state.currentVersion || state.version || '—')}</small></div><span class="sync-status ${state.status === 'error' ? 'error' : state.status === 'downloaded' ? 'ok' : ''}">${escapeHtml(status)}</span></div>${progress}<div class="update-actions"><button class="${state.status === 'downloaded' ? 'add' : 'cancel'}" id="updateAction" ${busy ? 'disabled' : ''}>${labels[state.status] || labels.idle}</button></div>`;
+    document.getElementById('updateAction').addEventListener('click', runAction);
+  }
+
+  async function runAction() {
+    try {
+      if (state.status === 'available') await window.homeUpdater.download();
+      else if (state.status === 'downloaded') await window.homeUpdater.install();
+      else await window.homeUpdater.check();
+    } catch {
+      state = { ...state, status: 'error', message: 'Не удалось проверить или скачать обновление. Повторите позже.' };
+      render();
+    }
+  }
+
+  if (!window.homeUpdater) {
+    render();
+    return;
+  }
+  window.homeUpdater.onStatus((nextState) => { state = { ...state, ...nextState, supported: true }; render(); });
+  window.homeUpdater.state().then((nextState) => { state = nextState; render(); }).catch(() => render());
+})();
+</script>
+<style>
+  .update-card{display:grid;gap:12px}.update-actions{display:flex;justify-content:flex-end}.update-actions button:disabled{cursor:wait;opacity:.7}.update-progress{height:8px;background:#e8ece5;border-radius:99px;overflow:hidden}.update-progress i{display:block;height:100%;border-radius:99px;background:var(--sage-deep);transition:width .25s}
+</style>
 </body></html>
