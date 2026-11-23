@@ -1,4 +1,4 @@
-const { app, BrowserWindow, shell, ipcMain } = require('electron');
+const { app, BrowserWindow, shell, ipcMain, Notification } = require('electron');
 const { autoUpdater } = require('electron-updater');
 const crypto = require('node:crypto');
 const fs = require('node:fs');
@@ -163,8 +163,26 @@ function createWindow() {
 }
 
 app.whenReady().then(() => {
+  app.setAppUserModelId('com.nashdom.organizer');
   configureAutoUpdater();
   ipcMain.handle('sync:server-info', () => startSyncServer());
+  ipcMain.handle('notifications:show', (_event, payload = {}) => {
+    if (!Notification.isSupported()) return { shown: false, reason: 'unsupported' };
+
+    const title = String(payload.title || 'Наш дом').slice(0, 120);
+    const body = String(payload.body || '').slice(0, 500);
+    if (!body) return { shown: false, reason: 'empty' };
+
+    const notification = new Notification({ title, body });
+    notification.on('click', () => {
+      const window = BrowserWindow.getAllWindows()[0];
+      if (!window) return;
+      if (window.isMinimized()) window.restore();
+      window.focus();
+    });
+    notification.show();
+    return { shown: true };
+  });
   ipcMain.handle('updater:state', () => ({ ...updateState, supported: app.isPackaged }));
   ipcMain.handle('updater:check', async () => {
     if (!app.isPackaged) return { ...updateState, supported: false };

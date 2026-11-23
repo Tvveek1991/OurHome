@@ -20,7 +20,7 @@
   <section id="today" class="view active"><div class="heading"><div><h1>Доброе утро, Анна</h1><p class="sub">Пятница, 21 ноября</p></div><div style="display:grid;gap:7px;justify-items:end"><span class="muted" id="todayCount"></span><button class="add" onclick="openModal('recurring')">＋ Дело</button></div></div><div class="layout"><div><div class="progress-card"><div class="row"><b>Сегодняшний ритм</b><b id="progressText">0 из 0</b></div><div class="bar"><i id="progress"></i></div></div><div class="section-label">Запланировано на сегодня</div><div id="todayList" class="task-list"></div></div><aside><div class="card cal"><div class="row"><b>Ноябрь 2026</b><span>📅</span></div><div class="month" id="miniCalendar"></div><div class="cal-note"><b>Маленький шаг — тоже забота</b><p class="muted">Не нужно успеть всё. Главное — делать дом уютнее вместе.</p></div></div></aside></div></section>
   <section id="shared" class="view"><div class="heading"><div><h1>Общие дела</h1><p class="sub">Важное, что ждёт своего момента</p></div><button class="add" onclick="openModal('shared')">＋ Добавить</button></div><div class="filter"><button class="on" data-filter="active">Активные</button><button data-filter="done">Выполненные</button><button data-filter="all">Все</button><button data-filter="archive">Архив</button></div><div id="sharedList" class="task-list" style="margin-top:18px"></div><div id="sharedCalendarSection" class="shared-calendar-section"><div class="section-label">Календарь общих дел</div><div id="sharedCalendar" class="card cal"></div><div id="sharedCalendarDateLabel" class="section-label"></div><div id="sharedCalendarTasks" class="task-list"></div></div></section>
   <section id="calendar" class="view"><div class="heading"><div><h1>Календарь</h1><p class="sub">План и история дома</p></div></div><div class="card cal"><div class="row"><button class="cancel">‹</button><h2>Ноябрь 2026</h2><button class="cancel">›</button></div><div class="month" id="bigCalendar"></div></div><div class="section-label">21 ноября</div><div id="calendarTasks" class="task-list"></div></section>
-  <section id="settings" class="view"><div class="heading"><div><h1>Настройки</h1><p class="sub">Ваш дом, ваши правила</p></div></div><div class="settings"><div class="card set"><div class="row"><div><b>Новый день — новый список</b><small>Невыполненные регулярные дела сохраняются в истории.</small></div><button class="toggle on" aria-label="Переключить"></button></div></div><div class="card set"><div class="row"><div><b>Выполненные общие дела</b><small>Оставлять видимыми, пока вы их не архивируете.</small></div><button class="toggle on" aria-label="Переключить"></button></div></div><div class="card set"><b>Участники дома</b><small>Анна · Максим · София</small></div><div id="updateSettings" class="card set update-card"></div><div class="card set"><b>Уведомления</b><small>Напоминания можно будет подключить в следующей версии.</small></div></div></section>
+  <section id="settings" class="view"><div class="heading"><div><h1>Настройки</h1><p class="sub">Ваш дом, ваши правила</p></div></div><div class="settings"><div class="card set"><div class="row"><div><b>Новый день — новый список</b><small>Невыполненные регулярные дела сохраняются в истории.</small></div><button class="toggle on" aria-label="Переключить"></button></div></div><div class="card set"><div class="row"><div><b>Выполненные общие дела</b><small>Оставлять видимыми, пока вы их не архивируете.</small></div><button class="toggle on" aria-label="Переключить"></button></div></div><div class="card set"><b>Участники дома</b><small>Анна · Максим · София</small></div><div id="updateSettings" class="card set update-card"></div><div id="notificationSettings" class="card set"><div class="row"><div><b>Уведомления о новых делах</b><small id="notificationDescription">Показывать уведомление Windows, когда дело становится актуальным сегодня.</small></div><button id="notificationsToggle" class="toggle" aria-label="Включить уведомления о новых делах" aria-pressed="false"></button></div></div></div></section>
 </main>
 <nav class="bottom"><button class="nav on" data-view="today"><span class="ico">☀</span>Сегодня</button><button class="nav" data-view="shared"><span class="ico">☷</span>Общие</button><button class="nav" data-view="calendar"><span class="ico">▦</span>Календарь</button><button class="nav" data-view="settings"><span class="ico">⚙</span>Настройки</button></nav>
 <div class="modal" id="modal"><form class="sheet" id="taskForm"><h2 id="formTitle">Новое дело</h2><p class="muted" id="formDescription">Выберите, будет ли оно постоянным или повторяющимся.</p><div class="type-picker"><button type="button" data-task-type="shared">Общее</button><button type="button" data-task-type="recurring">По расписанию</button></div><label>Что нужно сделать?</label><input required id="newTitle" placeholder="Например, купить лампочку" maxlength="70" autofocus><div class="schedule-fields" id="scheduleFields"><label>Как часто?</label><select id="newFrequency"><option value="daily">Каждый день</option><option value="weekly">Каждую неделю</option><option value="biweekly">Каждые 2 недели</option><option value="monthly">Каждый месяц</option></select><label>День выполнения</label><select id="newDay"><option value="Пн">Понедельник</option><option value="Вт">Вторник</option><option value="Ср">Среда</option><option value="Чт">Четверг</option><option value="Пт" selected>Пятница</option><option value="Сб">Суббота</option><option value="Вс">Воскресенье</option><option value="1-е число">1-е число месяца</option></select><p class="hint">Повторяющееся дело будет показываться в разделе «Сегодня» в нужный день.</p></div><div id="calendarOption" class="calendar-option"><label class="checkbox-label"><input type="checkbox" id="addToCalendar"> Добавить в календарь</label><div id="calendarDateField" class="calendar-date-field" hidden><label for="newCalendarDate">Дата выполнения</label><input type="date" id="newCalendarDate"></div></div><label>Ответственный</label><select id="newPerson"><option value="👥">Для всех</option><option value="👩🏻">Анна</option><option value="👨🏻">Максим</option><option value="👧🏻">София</option></select><div class="actions"><button type="button" class="cancel" onclick="closeModal()">Отмена</button><button id="formSubmit" class="save">Добавить</button></div></form></div>
@@ -215,6 +215,110 @@ function cal(target){let el=document.getElementById(target);let names=['Пн','�
   const existingMemberCard=Array.from(document.querySelectorAll('#settings .set')).find(card=>card.querySelector('b')?.textContent==='Участники дома');if(existingMemberCard)existingMemberCard.id='membersSettings';
   document.head.insertAdjacentHTML('beforeend','<style>.member-list{display:grid;gap:8px;margin-top:14px}.member-row,.member-add{display:flex;align-items:center;gap:8px}.member-name{min-width:0;flex:1;border:1px solid var(--line);background:#faf9f5;border-radius:10px;padding:9px 10px;color:var(--ink)}.member-emoji{border:1px solid var(--line);background:#faf9f5;border-radius:10px;padding:8px}.member-save,.add-member{border-radius:10px;background:#e8eee7;color:var(--ink);padding:9px 11px;font-weight:700;white-space:nowrap}.add-member{background:var(--sage-deep);color:white}.member-add{margin-top:14px}.member-add input{min-width:0;flex:1;border:1px solid var(--line);background:#faf9f5;border-radius:10px;padding:10px;color:var(--ink)}@media(max-width:520px){.member-row{flex-wrap:wrap}.member-name{min-width:140px}.member-save{margin-left:auto}.member-add{flex-wrap:wrap}.member-add input{min-width:190px}}</style>');
   migrateTaskMembers();populateMemberSelect();setFormType();render();
+})();
+</script>
+<script>
+(() => {
+  const SETTINGS_KEY = 'our-home-notifications-v1';
+  const TRACKER_KEY = 'our-home-notification-periods-v1';
+  const iso = date => `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+  const startOnWeekday = (date, weekday) => {
+    const result = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+    result.setDate(result.getDate() - (result.getDay() - weekday + 7) % 7);
+    return result;
+  };
+  const startOfMonth = date => new Date(date.getFullYear(), date.getMonth(), 1);
+  const isOnOrAfter = (first, second) => first.getTime() >= second.getTime();
+
+  function notificationsEnabled() {
+    return localStorage.getItem(SETTINGS_KEY) !== 'false';
+  }
+  function setNotificationsEnabled(enabled) {
+    localStorage.setItem(SETTINGS_KEY, String(enabled));
+    renderSettings();
+  }
+  function renderSettings() {
+    const toggle = document.getElementById('notificationsToggle');
+    const description = document.getElementById('notificationDescription');
+    if (!toggle || !description) return;
+    const enabled = notificationsEnabled();
+    toggle.classList.toggle('on', enabled);
+    toggle.setAttribute('aria-pressed', String(enabled));
+    toggle.setAttribute('aria-label', enabled ? 'Отключить уведомления о новых делах' : 'Включить уведомления о новых делах');
+    description.textContent = enabled
+      ? 'Windows сообщит, когда новое регулярное дело появится на сегодня.'
+      : 'Уведомления о новых регулярных делах выключены.';
+  }
+  function readTracker() {
+    try {
+      const tracker = JSON.parse(localStorage.getItem(TRACKER_KEY) || '{}');
+      return tracker && typeof tracker === 'object' ? tracker : {};
+    } catch {
+      return {};
+    }
+  }
+  function periodStart(task, date) {
+    if (task.frequency === 'daily') return new Date(date.getFullYear(), date.getMonth(), date.getDate());
+    if (task.frequency === 'weekly') return startOnWeekday(date, task.weekday ?? 1);
+    if (task.frequency === 'monthly') return startOfMonth(date);
+    const taskStart = new Date(`${task.startDate}T00:00:00`);
+    const days = Math.max(0, Math.floor((new Date(date.getFullYear(), date.getMonth(), date.getDate()) - taskStart) / 86400000));
+    return new Date(taskStart.getFullYear(), taskStart.getMonth(), taskStart.getDate() + Math.floor(days / 14) * 14);
+  }
+  function periodKey(task, date) {
+    return `${task.id}|${iso(periodStart(task, date))}`;
+  }
+  function currentTemplates() {
+    try {
+      const tasks = JSON.parse(localStorage.getItem('our-home-recurring-v2') || '[]');
+      return Array.isArray(tasks) ? tasks : [];
+    } catch {
+      return [];
+    }
+  }
+  function taskHasStarted(task, date) {
+    const start = new Date(`${task.startDate || iso(date)}T00:00:00`);
+    return isOnOrAfter(new Date(date.getFullYear(), date.getMonth(), date.getDate()), start);
+  }
+  async function showNotification(tasks) {
+    if (!window.homeNotifications) return;
+    const names = tasks.slice(0, 3).map(task => `• ${task.title}`);
+    const suffix = tasks.length > 3 ? `\nи ещё ${tasks.length - 3}` : '';
+    const body = tasks.length === 1
+      ? `На сегодня появилось дело: ${tasks[0].title}`
+      : `На сегодня появилось ${tasks.length} дела:\n${names.join('\n')}${suffix}`;
+    try { await window.homeNotifications.show({ title: 'Наш дом — новые дела на сегодня', body }); } catch { /* Уведомления недоступны вне Windows-приложения. */ }
+  }
+  async function checkForNewTodayTasks() {
+    const date = new Date();
+    const tracker = readTracker();
+    const initialized = Boolean(tracker.initialized);
+    const periods = tracker.periods && typeof tracker.periods === 'object' ? tracker.periods : {};
+    const added = [];
+    const tasks = currentTemplates().filter(task => task && task.id && taskHasStarted(task, date));
+
+    for (const task of tasks) {
+      const key = periodKey(task, date);
+      const previous = periods[task.id];
+      if ((previous && previous !== key) || (!previous && initialized)) added.push(task);
+      periods[task.id] = key;
+    }
+    const activeIds = new Set(tasks.map(task => task.id));
+    Object.keys(periods).forEach(id => { if (!activeIds.has(id)) delete periods[id]; });
+    localStorage.setItem(TRACKER_KEY, JSON.stringify({ initialized: true, periods }));
+
+    if (!initialized) {
+      const startedToday = tasks.filter(task => iso(periodStart(task, date)) === iso(date));
+      if (notificationsEnabled() && startedToday.length) await showNotification(startedToday);
+    } else if (notificationsEnabled() && added.length) {
+      await showNotification(added);
+    }
+  }
+
+  document.getElementById('notificationsToggle')?.addEventListener('click', () => setNotificationsEnabled(!notificationsEnabled()));
+  renderSettings();
+  checkForNewTodayTasks();
+  window.setInterval(checkForNewTodayTasks, 60 * 1000);
 })();
 </script>
 <script>

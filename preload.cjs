@@ -4,6 +4,10 @@ contextBridge.exposeInMainWorld('homeSync', {
   serverInfo: () => ipcRenderer.invoke('sync:server-info')
 });
 
+contextBridge.exposeInMainWorld('homeNotifications', {
+  show: (payload) => ipcRenderer.invoke('notifications:show', payload)
+});
+
 contextBridge.exposeInMainWorld('homeUpdater', {
   state: () => ipcRenderer.invoke('updater:state'),
   check: () => ipcRenderer.invoke('updater:check'),
