@@ -1,6 +1,6 @@
 {
   "name": "our-home-organizer",
-  "version": "0.2.2",
+  "version": "0.2.3",
   "description": "Уютный семейный органайзер для Windows",
   "author": "Наш дом",
   "main": "electron-main.cjs",

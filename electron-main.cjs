@@ -1,10 +1,11 @@
-const { app, BrowserWindow, shell, ipcMain, Notification } = require('electron');
+const { app, BrowserWindow, shell, ipcMain, Menu, Notification, Tray, nativeImage } = require('electron');
 const { autoUpdater } = require('electron-updater');
 const crypto = require('node:crypto');
 const fs = require('node:fs');
 const http = require('node:http');
 const os = require('node:os');
 const path = require('node:path');
+const zlib = require('node:zlib');
 
 const SYNC_PORT = 32145;
 const MAX_BODY_SIZE = 1024 * 1024;
@@ -12,6 +13,90 @@ let syncServer;
 let syncInfo;
 let syncServerStarting;
 let updateState = { status: 'idle', currentVersion: app.getVersion() };
+let mainWindow;
+let tray;
+let isQuitting = false;
+
+function crc32(buffer) {
+  let crc = 0xffffffff;
+  for (const byte of buffer) {
+    crc ^= byte;
+    for (let bit = 0; bit < 8; bit += 1) crc = (crc >>> 1) ^ (0xedb88320 & -(crc & 1));
+  }
+  return (crc ^ 0xffffffff) >>> 0;
+}
+
+function pngChunk(type, data) {
+  const typeBuffer = Buffer.from(type, 'ascii');
+  const chunk = Buffer.alloc(12 + data.length);
+  chunk.writeUInt32BE(data.length, 0);
+  typeBuffer.copy(chunk, 4);
+  data.copy(chunk, 8);
+  chunk.writeUInt32BE(crc32(Buffer.concat([typeBuffer, data])), 8 + data.length);
+  return chunk;
+}
+
+function createTrayIcon() {
+  const size = 32;
+  const pixels = Buffer.alloc((size * 4 + 1) * size);
+  for (let y = 0; y < size; y += 1) {
+    const row = y * (size * 4 + 1);
+    for (let x = 0; x < size; x += 1) {
+      const offset = row + 1 + x * 4;
+      const corner = (x < 4 || x > 27) && (y < 4 || y > 27);
+      const inCorner = (x < 4 ? 4 - x : x - 27) ** 2 + (y < 4 ? 4 - y : y - 27) ** 2 <= 16;
+      if (!corner || inCorner) pixels.set([112, 147, 117, 255], offset);
+
+      const roof = y >= 8 && y <= 17 && Math.abs(x - 15.5) <= (y - 8) * 1.25;
+      const house = y >= 17 && y <= 25 && x >= 8 && x <= 23;
+      if (roof || house) pixels.set([247, 243, 236, 255], offset);
+      if (y >= 20 && y <= 25 && x >= 13 && x <= 18) pixels.set([217, 139, 104, 255], offset);
+    }
+  }
+
+  const header = Buffer.alloc(13);
+  header.writeUInt32BE(size, 0);
+  header.writeUInt32BE(size, 4);
+  header.set([8, 6, 0, 0, 0], 8);
+  const png = Buffer.concat([
+    Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]),
+    pngChunk('IHDR', header),
+    pngChunk('IDAT', zlib.deflateSync(pixels)),
+    pngChunk('IEND', Buffer.alloc(0))
+  ]);
+  return nativeImage.createFromBuffer(png);
+}
+
+function showMainWindow() {
+  if (!mainWindow || mainWindow.isDestroyed()) {
+    createWindow();
+    return;
+  }
+  if (mainWindow.isMinimized()) mainWindow.restore();
+  mainWindow.show();
+  mainWindow.focus();
+}
+
+function createTray() {
+  if (tray) return tray;
+
+  const icon = createTrayIcon();
+  tray = new Tray(icon);
+  tray.setToolTip('Наш дом');
+  tray.setContextMenu(Menu.buildFromTemplate([
+    { label: 'Открыть «Наш дом»', click: showMainWindow },
+    { type: 'separator' },
+    {
+      label: 'Выйти',
+      click: () => {
+        isQuitting = true;
+        app.quit();
+      }
+    }
+  ]));
+  tray.on('double-click', showMainWindow);
+  return tray;
+}
 
 function publishUpdateState(nextState) {
   updateState = { ...updateState, ...nextState };
@@ -160,6 +245,22 @@ function createWindow() {
     shell.openExternal(url);
     return { action: 'deny' };
   });
+
+  window.on('minimize', (event) => {
+    event.preventDefault();
+    window.hide();
+  });
+  window.on('close', (event) => {
+    if (isQuitting) return;
+    event.preventDefault();
+    window.hide();
+  });
+  window.on('closed', () => {
+    if (mainWindow === window) mainWindow = undefined;
+  });
+
+  mainWindow = window;
+  return window;
 }
 
 app.whenReady().then(() => {
@@ -175,10 +276,7 @@ app.whenReady().then(() => {
 
     const notification = new Notification({ title, body });
     notification.on('click', () => {
-      const window = BrowserWindow.getAllWindows()[0];
-      if (!window) return;
-      if (window.isMinimized()) window.restore();
-      window.focus();
+      showMainWindow();
     });
     notification.show();
     return { shown: true };
@@ -195,18 +293,23 @@ app.whenReady().then(() => {
     return { ...updateState, supported: true };
   });
   ipcMain.handle('updater:install', () => {
-    if (app.isPackaged && updateState.status === 'downloaded') autoUpdater.quitAndInstall();
+    if (app.isPackaged && updateState.status === 'downloaded') {
+      isQuitting = true;
+      autoUpdater.quitAndInstall();
+    }
   });
   createWindow();
+  createTray();
   app.on('activate', () => {
-    if (BrowserWindow.getAllWindows().length === 0) createWindow();
+    showMainWindow();
   });
 });
 
 app.on('window-all-closed', () => {
-  if (process.platform !== 'darwin') app.quit();
+  if (isQuitting) app.quit();
 });
 
 app.on('before-quit', () => {
+  isQuitting = true;
   syncServer?.close();
 });
