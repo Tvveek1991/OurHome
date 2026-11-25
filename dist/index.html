@@ -144,10 +144,11 @@ function cal(target){let el=document.getElementById(target);let names=['Пн','�
   let sharedTasks=JSON.parse(localStorage.getItem('our-home-tasks')||'[]');
   let completions=JSON.parse(localStorage.getItem('our-home-period-completions')||'{}');
   let todayFilter='all',todaySort='period',sharedFilter='active',newTaskType='shared',editingTask=null;
-  const now=new Date();
-  let sharedCalendarDate=new Date(now.getFullYear(),now.getMonth(),now.getDate());
-  let sharedCalendarMonth=new Date(now.getFullYear(),now.getMonth(),1);
-  function periodKey(task,date=now){
+  const initialDate=new Date();
+  let renderedDay=iso(initialDate),dayTimer;
+  let sharedCalendarDate=new Date(initialDate.getFullYear(),initialDate.getMonth(),initialDate.getDate());
+  let sharedCalendarMonth=new Date(initialDate.getFullYear(),initialDate.getMonth(),1);
+  function periodKey(task,date=new Date()){
     if(task.frequency==='daily') return `d:${iso(date)}`;
     if(task.frequency==='weekly') return `w:${iso(startOnWeekday(date,task.weekday??1))}`;
     if(task.frequency==='monthly') return `m:${date.getFullYear()}-${date.getMonth()+1}`;
@@ -168,6 +169,8 @@ function cal(target){let el=document.getElementById(target);let names=['Пн','�
   }
   function esc(v){return v.replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
   function renderToday(){
+    const now=new Date();
+    renderedDay=iso(now);
     const visible=templates.filter(t=>todayFilter==='all'||(todayFilter==='active'?!done(t):done(t))).sort((a,b)=>todaySort==='name'?a.title.localeCompare(b.title,'ru'):todaySort==='status'?Number(done(a))-Number(done(b)):TYPE_ORDER[a.frequency]-TYPE_ORDER[b.frequency]||a.title.localeCompare(b.title,'ru'));
     const completed=templates.filter(done).length;
     document.querySelector('#today .heading').innerHTML=`<div><h1>Сегодня</h1><p class="sub">${now.toLocaleDateString('ru-RU',{weekday:'long',day:'numeric',month:'long'})}</p></div><div style="display:grid;gap:7px;justify-items:end"><span class="muted" id="todayCount">${completed}/${templates.length} дел</span><button class="add" onclick="openModal('recurring')">＋ Дело</button></div>`;
@@ -186,6 +189,15 @@ function cal(target){let el=document.getElementById(target);let names=['Пн','�
   function renderSharedCalendar(){const calendar=document.getElementById('sharedCalendar');if(!calendar)return;calendar.innerHTML=`<div class="row"><div class="date-nav"><button aria-label="Предыдущий месяц" onclick="moveSharedCalendarMonth(-1)">‹</button><h2>${sharedCalendarMonth.toLocaleDateString('ru-RU',{month:'long',year:'numeric'})}</h2><button aria-label="Следующий месяц" onclick="moveSharedCalendarMonth(1)">›</button></div><button class="cancel" onclick="selectSharedCalendarDate('${iso(new Date())}')">Сегодня</button></div><div class="month">${sharedCalendarGrid(sharedCalendarMonth)}</div>`;document.getElementById('sharedCalendarDateLabel').textContent=calendarDateLabel(sharedCalendarDate);const planned=sharedTasks.filter(task=>!task.archived&&task.calendarDate===iso(sharedCalendarDate));document.getElementById('sharedCalendarTasks').innerHTML=planned.length?planned.map(task=>card(task,'s')).join(''):'<div class="empty">На эту дату общих дел пока нет.</div>';}
   function renderShared(){const visible=sharedTasks.filter(t=>sharedFilter==='archive'?t.archived:sharedFilter==='all'?!t.archived:sharedFilter==='done'?t.done&&!t.archived:!t.done&&!t.archived);document.getElementById('sharedList').innerHTML=visible.length?visible.map(t=>card(t,'s')).join(''):'<div class="empty">Здесь спокойно — дел в этой категории нет.</div>';renderSharedCalendar();}
   function render(){renderToday();renderShared();renderMembers();save();}
+  function refreshDay(){
+    const current=new Date();
+    // Refresh only the lists so an open task draft is preserved, without sync writes.
+    if(iso(current)!==renderedDay){renderToday();renderSharedCalendar();}
+    clearTimeout(dayTimer);
+    const midnight=new Date(current.getFullYear(),current.getMonth(),current.getDate()+1);
+    // Wake at midnight; also recover from sleep and changes to the system clock.
+    dayTimer=setTimeout(refreshDay,Math.max(1,Math.min(60*1000,midnight-current)));
+  }
   window.toggleTask=(kind,id)=>{if(kind==='r'){const task=templates.find(t=>t.id===id),k=`${id}|${periodKey(task)}`;completions[k]=!completions[k];}else{const task=sharedTasks.find(t=>t.id===id);task.done=!task.done;}render();};
   window.archiveTask=id=>{const t=sharedTasks.find(t=>t.id===id);if(t){t.archived=true;render();}};
   window.restoreTask=id=>{const t=sharedTasks.find(t=>t.id===id);if(t){t.archived=false;render();}};
@@ -206,7 +218,7 @@ function cal(target){let el=document.getElementById(target);let names=['Пн','�
   document.getElementById('newFrequency').onchange=updateWeekdayField;
   document.querySelectorAll('[data-task-type]').forEach(b=>b.onclick=()=>{newTaskType=b.dataset.taskType;setFormType();});
   document.getElementById('addToCalendar').onchange=syncCalendarOption;
-  document.getElementById('taskForm').onsubmit=e=>{e.preventDefault();const title=document.getElementById('newTitle').value.trim(),assigned=assignee(),previous=editingTask&&(editingTask.kind==='r'?templates:sharedTasks).find(t=>t.id===editingTask.id),wasRecurring=editingTask?.kind==='r';if(!title||editingTask&&!previous)return;if(newTaskType==='recurring'){const frequency=document.getElementById('newFrequency').value,weekday=Number(document.getElementById('newWeekday').value),scheduleChanged=wasRecurring&&(previous.frequency!==frequency||previous.weekday!==weekday),task={id:wasRecurring?previous.id:`r${Date.now()}`,title,frequency,weekday,startDate:wasRecurring&&!scheduleChanged?previous.startDate:iso(startOnWeekday(now,weekday)),...assigned};if(wasRecurring){Object.assign(previous,task);if(scheduleChanged)Object.keys(completions).filter(k=>k.startsWith(`${previous.id}|`)).forEach(k=>delete completions[k]);}else{if(previous)sharedTasks=sharedTasks.filter(t=>t.id!==previous.id);templates.unshift(task);}}else{const calendarDate=document.getElementById('addToCalendar').checked?document.getElementById('newCalendarDate').value:null,task={id:!wasRecurring?previous?.id||`s${Date.now()}`:`s${Date.now()}`,title,meta:assigned.who,person:assigned.person,memberId:assigned.memberId,calendarDate,done:wasRecurring?done(previous):Boolean(previous?.done),archived:wasRecurring?false:Boolean(previous?.archived)};if(wasRecurring){templates=templates.filter(t=>t.id!==previous.id);Object.keys(completions).filter(k=>k.startsWith(`${previous.id}|`)).forEach(k=>delete completions[k]);sharedTasks.unshift(task);}else if(previous)Object.assign(previous,task);else{sharedTasks.unshift(task);sharedFilter='active';document.querySelectorAll('[data-filter]').forEach(b=>b.classList.toggle('on',b.dataset.filter==='active'));}}closeModal();render();};
+  document.getElementById('taskForm').onsubmit=e=>{e.preventDefault();const title=document.getElementById('newTitle').value.trim(),assigned=assignee(),previous=editingTask&&(editingTask.kind==='r'?templates:sharedTasks).find(t=>t.id===editingTask.id),wasRecurring=editingTask?.kind==='r';if(!title||editingTask&&!previous)return;if(newTaskType==='recurring'){const frequency=document.getElementById('newFrequency').value,weekday=Number(document.getElementById('newWeekday').value),scheduleChanged=wasRecurring&&(previous.frequency!==frequency||previous.weekday!==weekday),task={id:wasRecurring?previous.id:`r${Date.now()}`,title,frequency,weekday,startDate:wasRecurring&&!scheduleChanged?previous.startDate:iso(startOnWeekday(new Date(),weekday)),...assigned};if(wasRecurring){Object.assign(previous,task);if(scheduleChanged)Object.keys(completions).filter(k=>k.startsWith(`${previous.id}|`)).forEach(k=>delete completions[k]);}else{if(previous)sharedTasks=sharedTasks.filter(t=>t.id!==previous.id);templates.unshift(task);}}else{const calendarDate=document.getElementById('addToCalendar').checked?document.getElementById('newCalendarDate').value:null,task={id:!wasRecurring?previous?.id||`s${Date.now()}`:`s${Date.now()}`,title,meta:assigned.who,person:assigned.person,memberId:assigned.memberId,calendarDate,done:wasRecurring?done(previous):Boolean(previous?.done),archived:wasRecurring?false:Boolean(previous?.archived)};if(wasRecurring){templates=templates.filter(t=>t.id!==previous.id);Object.keys(completions).filter(k=>k.startsWith(`${previous.id}|`)).forEach(k=>delete completions[k]);sharedTasks.unshift(task);}else if(previous)Object.assign(previous,task);else{sharedTasks.unshift(task);sharedFilter='active';document.querySelectorAll('[data-filter]').forEach(b=>b.classList.toggle('on',b.dataset.filter==='active'));}}closeModal();render();};
   document.querySelectorAll('[data-filter]').forEach(b=>b.onclick=()=>{sharedFilter=b.dataset.filter;document.querySelectorAll('[data-filter]').forEach(x=>x.classList.toggle('on',x===b));renderShared();});
   window.selectSharedCalendarDate=dateISO=>{sharedCalendarDate=new Date(`${dateISO}T00:00:00`);sharedCalendarMonth=new Date(sharedCalendarDate.getFullYear(),sharedCalendarDate.getMonth(),1);renderSharedCalendar();};
   window.moveSharedCalendarMonth=step=>{sharedCalendarMonth=new Date(sharedCalendarMonth.getFullYear(),sharedCalendarMonth.getMonth()+step,1);renderSharedCalendar();};
@@ -215,6 +227,9 @@ function cal(target){let el=document.getElementById(target);let names=['Пн','�
   const existingMemberCard=Array.from(document.querySelectorAll('#settings .set')).find(card=>card.querySelector('b')?.textContent==='Участники дома');if(existingMemberCard)existingMemberCard.id='membersSettings';
   document.head.insertAdjacentHTML('beforeend','<style>.member-list{display:grid;gap:8px;margin-top:14px}.member-row,.member-add{display:flex;align-items:center;gap:8px}.member-name{min-width:0;flex:1;border:1px solid var(--line);background:#faf9f5;border-radius:10px;padding:9px 10px;color:var(--ink)}.member-emoji{border:1px solid var(--line);background:#faf9f5;border-radius:10px;padding:8px}.member-save,.add-member{border-radius:10px;background:#e8eee7;color:var(--ink);padding:9px 11px;font-weight:700;white-space:nowrap}.add-member{background:var(--sage-deep);color:white}.member-add{margin-top:14px}.member-add input{min-width:0;flex:1;border:1px solid var(--line);background:#faf9f5;border-radius:10px;padding:10px;color:var(--ink)}@media(max-width:520px){.member-row{flex-wrap:wrap}.member-name{min-width:140px}.member-save{margin-left:auto}.member-add{flex-wrap:wrap}.member-add input{min-width:190px}}</style>');
   migrateTaskMembers();populateMemberSelect();setFormType();render();
+  window.addEventListener('focus',refreshDay);
+  document.addEventListener('visibilitychange',refreshDay);
+  refreshDay();
 })();
 </script>
 <script>

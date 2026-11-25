@@ -235,6 +235,8 @@ function createWindow() {
       preload: path.join(__dirname, 'preload.cjs'),
       contextIsolation: true,
       nodeIntegration: false,
+      // Keep daily rollover and notification timers running while hidden in the tray.
+      backgroundThrottling: false,
       sandbox: true
     }
   });

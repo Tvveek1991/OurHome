@@ -1,11 +1,12 @@
 {
   "name": "our-home-organizer",
-  "version": "0.2.3",
+  "version": "0.2.4",
   "description": "Уютный семейный органайзер для Windows",
   "author": "Наш дом",
   "main": "electron-main.cjs",
   "private": true,
   "scripts": {
+    "test": "electron tests/day-rollover.cjs",
     "desktop:dev": "electron .",
     "desktop:build": "electron-builder --win nsis",
     "desktop:publish": "electron-builder --win nsis --publish always"
